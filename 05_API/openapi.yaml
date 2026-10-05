@@ -1,0 +1,141 @@
+openapi: 3.0.3
+info:
+  title: SALESTORM High-Scale Flash Sale API Specification
+  description: High-throughput, zero-oversell e-commerce flash-sale REST API contract.
+  version: 1.0.0
+servers:
+  - url: https://api.salestorm.io/v1
+    description: Production Edge API Gateway
+
+paths:
+  /flash-sale/reserve:
+    post:
+      summary: Reserve inventory stock for flash sale item
+      operationId: reserveStock
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique UUID key preventing duplicate reservation submissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - productId
+                - quantity
+              properties:
+                productId:
+                  type: string
+                  format: uuid
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '200':
+          description: Reservation successful or idempotent replay
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reservationId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [RESERVED, SOLD_OUT]
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '400':
+          description: Invalid request payload schema
+        '429':
+          description: Rate limit exceeded (Edge Waiting Room active)
+        '500':
+          description: Internal server error
+
+  /payments/charge:
+    post:
+      summary: Execute payment authorization for reserved stock
+      operationId: processPayment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reservationId
+                - paymentToken
+                - amount
+              properties:
+                reservationId:
+                  type: string
+                  format: uuid
+                paymentToken:
+                  type: string
+                amount:
+                  type: number
+      responses:
+        '200':
+          description: Payment succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionRef:
+                    type: string
+                  status:
+                    type: string
+                    enum: [PAYMENT_SUCCESS, PAYMENT_FAILED]
+        '402':
+          description: Payment declined by provider
+        '503':
+          description: Circuit Breaker OPEN - Payment service busy
+        '504':
+          description: Payment Gateway Timeout
+
+  /orders/{orderId}:
+    get:
+      summary: Retrieve order status and fulfillment details
+      operationId: getOrder
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order details found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+                  orderNumber:
+                    type: string
+                  status:
+                    type: string
+                  totalAmount:
+                    type: number
+        '404':
+          description: Order record not found
